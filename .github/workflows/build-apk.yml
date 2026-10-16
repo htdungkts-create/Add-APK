@@ -45,6 +45,26 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
           sha256sum app/src/main/assets/vendor/libredwg/wasm/* app/src/main/assets/vendor/libredwg/dist/*
+      - name: Apply v0.3 LWPOLYLINE closed-flag patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/assets/index.html')
+          s = p.read_text(encoding='utf-8')
+          old = "function closed(o,pts){for(const k of ['closed','isClosed','is_closed']){if(o?.[k]===true||o?.[k]===1)return true}for(const k of ['flag','flags']){if(Number.isFinite(+o?.[k])&&((+o[k])&1))return true}if(pts?.length>2){const a=pts[0],b=pts[pts.length-1];if(Math.hypot(a.x-b.x,a.y-b.y)<1e-7)return true}return false}"
+          new = "function closed(o,pts){for(const k of ['closed','isClosed','is_closed']){if(o?.[k]===true||o?.[k]===1)return true}const typ=String(o?.type??o?.dxfName??'').toUpperCase();for(const k of ['flag','flags']){if(Number.isFinite(+o?.[k])){const f=+o[k];if(typ==='LWPOLYLINE'){if((f&512)!==0)return true}else if((f&1)!==0)return true}}if(pts?.length>2){const a=pts[0],b=pts[pts.length-1];if(Math.hypot(a.x-b.x,a.y-b.y)<1e-7)return true}return false}"
+          if old not in s:
+              raise SystemExit('closed() patch anchor not found')
+          s = s.replace(old, new, 1)
+          s = s.replace('APK v0.2', 'APK v0.3', 1)
+          s = s.replace("appVersion:'apk-0.2'", "appVersion:'apk-0.3'")
+          p.write_text(s, encoding='utf-8')
+          print('v0.3 patch applied')
+          PY
+          grep -F "APK v0.3" app/src/main/assets/index.html
+          grep -F "f&512" app/src/main/assets/index.html
       - name: Restore stable CCL dev signing key
         shell: bash
         run: |
@@ -67,6 +87,6 @@ jobs:
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-POCKET-APK-v0.2
+          name: CCL-CAD-POCKET-APK-v0.3
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
