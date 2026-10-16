@@ -47,14 +47,14 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
 
-      - name: Apply v0.4 AREA WORKSHEET patch
+      - name: Apply v0.5 BLOCK INSERT patch
         shell: bash
         run: |
           set -euxo pipefail
-          python tools/patch_v04.py
-          grep -F "AREA WORKSHEET" app/src/main/assets/index.html
-          grep -F "version:'0.4.0'" app/src/main/assets/index.html
-          grep -F "f&512" app/src/main/assets/index.html
+          python tools/patch_v05.py
+          grep -F "TARGETED_DB_ENTITIES+BLOCK_INSERT" app/src/main/assets/index.html
+          grep -F "version:'0.5.0'" app/src/main/assets/index.html
+          grep -F "BLOCK_BASEPOINT→SCALE_XY→ROTATE→TRANSLATE" app/src/main/assets/index.html
 
       - name: Check app JavaScript syntax
         shell: bash
@@ -70,17 +70,19 @@ jobs:
           PY
           node --check /tmp/ccl-app.mjs
 
-      - name: Geometry worksheet smoke test
+      - name: Nested transform smoke test
         shell: bash
         run: |
           set -euxo pipefail
           node <<'JS'
-          function onSeg(p,a,b){const c=(p.x-a.x)*(b.y-a.y)-(p.y-a.y)*(b.x-a.x);if(Math.abs(c)>1e-7)return false;return (p.x-a.x)*(p.x-b.x)+(p.y-a.y)*(p.y-b.y)<=1e-7}
-          function inside(p,poly){let x=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[j],b=poly[i];if(onSeg(p,a,b))return true;const hit=((b.y>p.y)!=(a.y>p.y))&&(p.x<(a.x-b.x)*(p.y-b.y)/((a.y-b.y)||1e-20)+b.x);if(hit)x=!x}return x}
-          const outer=[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],inner=[{x:2,y:2},{x:4,y:2},{x:4,y:4},{x:2,y:4}];
-          if(!inner.every(p=>inside(p,outer)))process.exit(1);
-          if(Math.abs((100-4)-96)>1e-9)process.exit(2);
-          console.log('worksheet geometry smoke PASS');
+          function mm(A,B){return{a:A.a*B.a+A.c*B.b,b:A.b*B.a+A.d*B.b,c:A.a*B.c+A.c*B.d,d:A.b*B.c+A.d*B.d,tx:A.a*B.tx+A.c*B.ty+A.tx,ty:A.b*B.tx+A.d*B.ty+A.ty}}
+          function p(M,q){return{x:M.a*q.x+M.c*q.y+M.tx,y:M.b*q.x+M.d*q.y+M.ty}}
+          function ins(ip,sx,sy,r,bp){const c=Math.cos(r),s=Math.sin(r),a=c*sx,b=s*sx,cc=-s*sy,d=c*sy,ox=-bp.x,oy=-bp.y;return{a,b,c:cc,d,tx:ip.x+a*ox+cc*oy,ty:ip.y+b*ox+d*oy}}
+          const M=mm({a:1,b:0,c:0,d:1,tx:0,ty:0},ins({x:100,y:50},2,2,Math.PI/2,{x:10,y:5}));
+          const q=p(M,{x:10,y:5});
+          if(Math.abs(q.x-100)>1e-9||Math.abs(q.y-50)>1e-9)process.exit(1);
+          const det=Math.abs(M.a*M.d-M.b*M.c);if(Math.abs(det-4)>1e-9)process.exit(2);
+          console.log('nested transform smoke PASS');
           JS
 
       - name: Restore stable CCL dev signing key
@@ -105,11 +107,11 @@ jobs:
           set -euxo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
           /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.4.apk
-          sha256sum CCL_CAD_v0.4.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.5.apk
+          sha256sum CCL_CAD_v0.5.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-v0.4
-          path: CCL_CAD_v0.4.apk
+          name: CCL-CAD-v0.5
+          path: CCL_CAD_v0.5.apk
           retention-days: 30
