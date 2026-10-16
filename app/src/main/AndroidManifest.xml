@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:allowBackup="false"
-        android:label="CCL CAD POCKET"
+        android:label="CCL CAD"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:largeHeap="true"
         android:usesCleartextTraffic="false"
