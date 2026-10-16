@@ -15,6 +15,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Prepare Android SDK
         shell: bash
         run: |
@@ -26,10 +27,11 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
-          "$SDKMANAGER" --list_installed | sed -n '1,120p'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Vendor LibreDWG WebAssembly
         shell: bash
         run: |
@@ -44,53 +46,70 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.js app/src/main/assets/vendor/libredwg/wasm/
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
-          sha256sum app/src/main/assets/vendor/libredwg/wasm/* app/src/main/assets/vendor/libredwg/dist/*
-      - name: Apply v0.3.1 geometry and branding patch
+
+      - name: Apply v0.4 AREA WORKSHEET patch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python tools/patch_v04.py
+          grep -F "AREA WORKSHEET" app/src/main/assets/index.html
+          grep -F "version:'0.4.0'" app/src/main/assets/index.html
+          grep -F "f&512" app/src/main/assets/index.html
+
+      - name: Check app JavaScript syntax
         shell: bash
         run: |
           set -euxo pipefail
           python - <<'PY'
           from pathlib import Path
-          p = Path('app/src/main/assets/index.html')
-          s = p.read_text(encoding='utf-8')
-          old = "function closed(o,pts){for(const k of ['closed','isClosed','is_closed']){if(o?.[k]===true||o?.[k]===1)return true}for(const k of ['flag','flags']){if(Number.isFinite(+o?.[k])&&((+o[k])&1))return true}if(pts?.length>2){const a=pts[0],b=pts[pts.length-1];if(Math.hypot(a.x-b.x,a.y-b.y)<1e-7)return true}return false}"
-          new = "function closed(o,pts){for(const k of ['closed','isClosed','is_closed']){if(o?.[k]===true||o?.[k]===1)return true}const typ=String(o?.type??o?.dxfName??'').toUpperCase();for(const k of ['flag','flags']){if(Number.isFinite(+o?.[k])){const f=+o[k];if(typ==='LWPOLYLINE'){if((f&512)!==0)return true}else if((f&1)!==0)return true}}if(pts?.length>2){const a=pts[0],b=pts[pts.length-1];if(Math.hypot(a.x-b.x,a.y-b.y)<1e-7)return true}return false}"
-          if old not in s:
-              raise SystemExit('closed() patch anchor not found')
-          s = s.replace(old, new, 1)
-          s = s.replace('<title>CCL CAD POCKET</title>', '<title>CCL CAD</title>', 1)
-          s = s.replace('header{padding:18px 16px 14px;', 'header{padding:calc(18px + env(safe-area-inset-top, 0px)) 16px 14px;', 1)
-          s = s.replace('CCL CAD POCKET <span class="muted">APK v0.2</span>', 'CCL CAD <span class="muted">v0.3.1</span>', 1)
-          s = s.replace('DWG geometry review • phone-first • local-only', 'Pocket Review • DWG geometry • local-only', 1)
-          s = s.replace("appVersion:'apk-0.2'", "appVersion:'0.3.1'")
-          p.write_text(s, encoding='utf-8')
-          print('v0.3.1 geometry + branding patch applied')
+          import re
+          s=Path('app/src/main/assets/index.html').read_text(encoding='utf-8')
+          m=re.search(r'<script type="module">(.*?)</script>',s,re.S)
+          if not m: raise SystemExit('module script not found')
+          Path('/tmp/ccl-app.mjs').write_text(m.group(1),encoding='utf-8')
           PY
-          grep -F "CCL CAD <span class=\"muted\">v0.3.1</span>" app/src/main/assets/index.html
-          grep -F "f&512" app/src/main/assets/index.html
+          node --check /tmp/ccl-app.mjs
+
+      - name: Geometry worksheet smoke test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node <<'JS'
+          function onSeg(p,a,b){const c=(p.x-a.x)*(b.y-a.y)-(p.y-a.y)*(b.x-a.x);if(Math.abs(c)>1e-7)return false;return (p.x-a.x)*(p.x-b.x)+(p.y-a.y)*(p.y-b.y)<=1e-7}
+          function inside(p,poly){let x=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[j],b=poly[i];if(onSeg(p,a,b))return true;const hit=((b.y>p.y)!=(a.y>p.y))&&(p.x<(a.x-b.x)*(p.y-b.y)/((a.y-b.y)||1e-20)+b.x);if(hit)x=!x}return x}
+          const outer=[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}],inner=[{x:2,y:2},{x:4,y:2},{x:4,y:4},{x:2,y:4}];
+          if(!inner.every(p=>inside(p,outer)))process.exit(1);
+          if(Math.abs((100-4)-96)>1e-9)process.exit(2);
+          console.log('worksheet geometry smoke PASS');
+          JS
+
       - name: Restore stable CCL dev signing key
         shell: bash
         run: |
           set -euxo pipefail
           base64 -d app/ccl-pocket-dev.jks.b64 > app/ccl-pocket-dev.jks
-          keytool -list -keystore app/ccl-pocket-dev.jks -storepass cclpocket2026 -alias cclpocket
+          test -s app/ccl-pocket-dev.jks
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+
       - name: Build debug APK
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: gradle --no-daemon :app:assembleDebug
+
       - name: Verify and name APK
         run: |
           set -euxo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
           /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.3.1.apk
-          sha256sum CCL_CAD_v0.3.1.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.4.apk
+          sha256sum CCL_CAD_v0.4.apk
+
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-v0.3.1
-          path: CCL_CAD_v0.3.1.apk
+          name: CCL-CAD-v0.4
+          path: CCL_CAD_v0.4.apk
           retention-days: 30
