@@ -45,7 +45,7 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
           sha256sum app/src/main/assets/vendor/libredwg/wasm/* app/src/main/assets/vendor/libredwg/dist/*
-      - name: Apply v0.3 LWPOLYLINE closed-flag patch
+      - name: Apply v0.3.1 geometry and branding patch
         shell: bash
         run: |
           set -euxo pipefail
@@ -58,12 +58,15 @@ jobs:
           if old not in s:
               raise SystemExit('closed() patch anchor not found')
           s = s.replace(old, new, 1)
-          s = s.replace('APK v0.2', 'APK v0.3', 1)
-          s = s.replace("appVersion:'apk-0.2'", "appVersion:'apk-0.3'")
+          s = s.replace('<title>CCL CAD POCKET</title>', '<title>CCL CAD</title>', 1)
+          s = s.replace('header{padding:18px 16px 14px;', 'header{padding:calc(18px + env(safe-area-inset-top, 0px)) 16px 14px;', 1)
+          s = s.replace('CCL CAD POCKET <span class="muted">APK v0.2</span>', 'CCL CAD <span class="muted">v0.3.1</span>', 1)
+          s = s.replace('DWG geometry review • phone-first • local-only', 'Pocket Review • DWG geometry • local-only', 1)
+          s = s.replace("appVersion:'apk-0.2'", "appVersion:'0.3.1'")
           p.write_text(s, encoding='utf-8')
-          print('v0.3 patch applied')
+          print('v0.3.1 geometry + branding patch applied')
           PY
-          grep -F "APK v0.3" app/src/main/assets/index.html
+          grep -F "CCL CAD <span class=\"muted\">v0.3.1</span>" app/src/main/assets/index.html
           grep -F "f&512" app/src/main/assets/index.html
       - name: Restore stable CCL dev signing key
         shell: bash
@@ -79,14 +82,15 @@ jobs:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: gradle --no-daemon :app:assembleDebug
-      - name: Verify APK
+      - name: Verify and name APK
         run: |
           set -euxo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
           /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-          sha256sum app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.3.1.apk
+          sha256sum CCL_CAD_v0.3.1.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-POCKET-APK-v0.3
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: CCL-CAD-v0.3.1
+          path: CCL_CAD_v0.3.1.apk
           retention-days: 30
