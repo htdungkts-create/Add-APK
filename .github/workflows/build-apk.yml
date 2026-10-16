@@ -45,6 +45,12 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
           sha256sum app/src/main/assets/vendor/libredwg/wasm/* app/src/main/assets/vendor/libredwg/dist/*
+      - name: Restore stable CCL dev signing key
+        shell: bash
+        run: |
+          set -euxo pipefail
+          base64 -d app/ccl-pocket-dev.jks.b64 > app/ccl-pocket-dev.jks
+          keytool -list -keystore app/ccl-pocket-dev.jks -storepass cclpocket2026 -alias cclpocket
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -55,10 +61,12 @@ jobs:
         run: gradle --no-daemon :app:assembleDebug
       - name: Verify APK
         run: |
+          set -euxo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
+          /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
           sha256sum app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-POCKET-APK
+          name: CCL-CAD-POCKET-APK-v0.2
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
