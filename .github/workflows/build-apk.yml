@@ -47,14 +47,14 @@ jobs:
           cp /tmp/cclnpm/package/wasm/libredwg-web.wasm app/src/main/assets/vendor/libredwg/wasm/
           test -s app/src/main/assets/vendor/libredwg/wasm/libredwg-web.wasm
 
-      - name: Apply v0.5 BLOCK INSERT patch
+      - name: Apply v0.6 candidate intelligence patch
         shell: bash
         run: |
           set -euxo pipefail
-          python tools/patch_v05.py
-          grep -F "TARGETED_DB_ENTITIES+BLOCK_INSERT" app/src/main/assets/index.html
-          grep -F "version:'0.5.0'" app/src/main/assets/index.html
-          grep -F "BLOCK_BASEPOINT→SCALE_XY→ROTATE→TRANSLATE" app/src/main/assets/index.html
+          python tools/patch_v06.py
+          grep -F "CANDIDATE GROUPS" app/src/main/assets/index.html
+          grep -F "GRAPHIC-LIKE" app/src/main/assets/index.html
+          grep -F "version:'0.6.0'" app/src/main/assets/index.html
 
       - name: Check app JavaScript syntax
         shell: bash
@@ -70,19 +70,19 @@ jobs:
           PY
           node --check /tmp/ccl-app.mjs
 
-      - name: Nested transform smoke test
+      - name: Candidate grouping smoke test
         shell: bash
         run: |
           set -euxo pipefail
           node <<'JS'
-          function mm(A,B){return{a:A.a*B.a+A.c*B.b,b:A.b*B.a+A.d*B.b,c:A.a*B.c+A.c*B.d,d:A.b*B.c+A.d*B.d,tx:A.a*B.tx+A.c*B.ty+A.tx,ty:A.b*B.tx+A.d*B.ty+A.ty}}
-          function p(M,q){return{x:M.a*q.x+M.c*q.y+M.tx,y:M.b*q.x+M.d*q.y+M.ty}}
-          function ins(ip,sx,sy,r,bp){const c=Math.cos(r),s=Math.sin(r),a=c*sx,b=s*sx,cc=-s*sy,d=c*sy,ox=-bp.x,oy=-bp.y;return{a,b,c:cc,d,tx:ip.x+a*ox+cc*oy,ty:ip.y+b*ox+d*oy}}
-          const M=mm({a:1,b:0,c:0,d:1,tx:0,ty:0},ins({x:100,y:50},2,2,Math.PI/2,{x:10,y:5}));
-          const q=p(M,{x:10,y:5});
-          if(Math.abs(q.x-100)>1e-9||Math.abs(q.y-50)>1e-9)process.exit(1);
-          const det=Math.abs(M.a*M.d-M.b*M.c);if(Math.abs(det-4)>1e-9)process.exit(2);
-          console.log('nested transform smoke PASS');
+          function norm(x){return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()}
+          function hint(layer){const x=norm(layer);if(['void','shaft','thong tang','opening','hole'].some(k=>x.includes(k)))return'POSSIBLE';if(['net thay manh','text','dim','grid','truc'].some(k=>x.includes(k)))return'GRAPHIC-LIKE';return'UNKNOWN'}
+          if(hint('SA_Net thay manh')!=='GRAPHIC-LIKE')process.exit(1);
+          if(hint('KT_VOID_SHAFT')!=='POSSIBLE')process.exit(2);
+          const rows=[{h:'1601C',layer:'SA_Net thay manh',a:3.8499,insert:'A'},{h:'1601C',layer:'SA_Net thay manh',a:3.8499,insert:'B'}];
+          const key=r=>[r.h,r.layer,Math.round(r.a*10000)/10000].join('|');
+          if(new Set(rows.map(key)).size!==1)process.exit(3);
+          console.log('candidate grouping smoke PASS');
           JS
 
       - name: Restore stable CCL dev signing key
@@ -107,11 +107,11 @@ jobs:
           set -euxo pipefail
           test -s app/build/outputs/apk/debug/app-debug.apk
           /usr/local/lib/android/sdk/build-tools/35.0.0/apksigner verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.5.apk
-          sha256sum CCL_CAD_v0.5.apk
+          cp app/build/outputs/apk/debug/app-debug.apk CCL_CAD_v0.6.apk
+          sha256sum CCL_CAD_v0.6.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CCL-CAD-v0.5
-          path: CCL_CAD_v0.5.apk
+          name: CCL-CAD-v0.6
+          path: CCL_CAD_v0.6.apk
           retention-days: 30
