@@ -1,0 +1,117 @@
+name: Build DWG2DXF WASM Engine
+
+on:
+  push:
+    branches: [ cad-dxf-gate-v03 ]
+    paths:
+      - '.github/workflows/build-dwg2dxf-wasm.yml'
+      - 'cad_converter/**'
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native build prerequisites
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake libtool libtool-bin pkg-config gettext texinfo perl make git ca-certificates
+
+      - name: Install pinned Emscripten SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch 3.1.74 https://github.com/emscripten-core/emsdk.git /tmp/emsdk
+          cd /tmp/emsdk
+          ./emsdk install 3.1.74
+          ./emsdk activate 3.1.74
+          source ./emsdk_env.sh
+          emcc --version | head -n 2
+          echo "EMSDK=/tmp/emsdk" >> "$GITHUB_ENV"
+
+      - name: Build LibreDWG dwg2dxf with Emscripten
+        shell: bash
+        env:
+          LIBREDWG_REF: f860b0fb76d5f8effb5a70769a3389cb1e0308c8
+        run: |
+          set -euxo pipefail
+          source "$EMSDK/emsdk_env.sh"
+          git clone https://github.com/LibreDWG/libredwg.git /tmp/libredwg
+          cd /tmp/libredwg
+          git checkout --detach "$LIBREDWG_REF"
+          git submodule update --init --recursive
+          ./autogen.sh
+          emconfigure ./configure \
+            --enable-release \
+            --disable-shared \
+            --enable-static \
+            --disable-bindings \
+            --disable-docs \
+            --disable-werror
+          emmake make -C src -j2
+          emmake make -C programs dwg2dxf -j2
+          echo '--- built files ---'
+          ls -lah programs/dwg2dxf*
+          file programs/dwg2dxf* || true
+
+      - name: Smoke test WASM CLI without project DWG
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source "$EMSDK/emsdk_env.sh"
+          cd /tmp/libredwg
+          if [ -f programs/dwg2dxf.js ]; then
+            node programs/dwg2dxf.js --version | head -n 3
+            ENTRY=programs/dwg2dxf.js
+          elif [ -f programs/dwg2dxf ]; then
+            node programs/dwg2dxf --version | head -n 3
+            ENTRY=programs/dwg2dxf
+          else
+            echo 'dwg2dxf JS launcher not found'
+            exit 21
+          fi
+          echo "$ENTRY" > /tmp/dwg2dxf_entry.txt
+
+      - name: Package immutable engine
+        shell: bash
+        env:
+          LIBREDWG_REF: f860b0fb76d5f8effb5a70769a3389cb1e0308c8
+        run: |
+          set -euxo pipefail
+          source "$EMSDK/emsdk_env.sh"
+          OUT="$GITHUB_WORKSPACE/CCL_DWG2DXF_WASM_v0.1"
+          mkdir -p "$OUT"
+          cd /tmp/libredwg
+          ENTRY=$(cat /tmp/dwg2dxf_entry.txt)
+          cp "$ENTRY" "$OUT/dwg2dxf.js"
+          for f in programs/dwg2dxf.wasm programs/dwg2dxf.data; do
+            [ -f "$f" ] && cp "$f" "$OUT/"
+          done
+          test -s "$OUT/dwg2dxf.js"
+          if grep -q '\.wasm' "$OUT/dwg2dxf.js"; then test -s "$OUT/dwg2dxf.wasm"; fi
+          emcc --version > "$OUT/EMSCRIPTEN_VERSION.txt"
+          printf '%s\n' "$LIBREDWG_REF" > "$OUT/LIBREDWG_REF.txt"
+          cat > "$OUT/README.txt" <<'EOF'
+          CCL_DWG2DXF_WASM_v0.1
+          Self-contained offline DWG -> DXF writer candidate.
+          Usage: node dwg2dxf.js -y --as r2018 -o output.dxf input.dwg
+          Boundary: conversion artifact only; conversion PASS does not prove semantic geometry/GFA.
+          Source DWG must remain read-only; output goes to a separate result area.
+          EOF
+          sha256sum "$OUT"/* | tee "$OUT/SHA256SUMS.txt"
+          ls -lah "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CCL-DWG2DXF-WASM-v0.1
+          path: CCL_DWG2DXF_WASM_v0.1
+          retention-days: 30
+          if-no-files-found: error
