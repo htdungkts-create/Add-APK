@@ -37,7 +37,7 @@ jobs:
           emcc --version | head -n 2
           echo "EMSDK=/tmp/emsdk" >> "$GITHUB_ENV"
 
-      - name: Build reusable LibreDWG dwg2dxf module
+      - name: Configure and build LibreDWG static library
         shell: bash
         env:
           LIBREDWG_REF: f860b0fb76d5f8effb5a70769a3389cb1e0308c8
@@ -49,7 +49,6 @@ jobs:
           git checkout --detach "$LIBREDWG_REF"
           git submodule update --init --recursive
           ./autogen.sh
-          export LDFLAGS='-sMODULARIZE=1 -sEXPORT_NAME=createDwg2Dxf -sEXPORTED_RUNTIME_METHODS=FS,callMain -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 -sENVIRONMENT=web,node'
           emconfigure ./configure \
             --enable-release \
             --disable-shared \
@@ -57,17 +56,20 @@ jobs:
             --disable-bindings \
             --disable-docs \
             --disable-werror
+          grep -E '^#define SIZEOF_SIZE_T [0-9]+' src/config.h
           emmake make -C src -j2
-          emmake make -C programs dwg2dxf -j2
-          echo '--- built files ---'
-          ls -lah programs/dwg2dxf*
-          file programs/dwg2dxf* || true
 
-      - name: Smoke test reusable WASM module
+      - name: Link reusable dwg2dxf MEMFS module
         shell: bash
         run: |
           set -euxo pipefail
+          source "$EMSDK/emsdk_env.sh"
           cd /tmp/libredwg
+          WASM_LDFLAGS='-sMODULARIZE=1 -sEXPORT_NAME=createDwg2Dxf -sEXPORTED_RUNTIME_METHODS=FS,callMain -sFORCE_FILESYSTEM=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0 -sENVIRONMENT=web,node'
+          emmake make -C programs dwg2dxf -j2 LDFLAGS="$WASM_LDFLAGS"
+          echo '--- built files ---'
+          ls -lah programs/dwg2dxf*
+          file programs/dwg2dxf* || true
           if [ -f programs/dwg2dxf.js ]; then
             ENTRY=programs/dwg2dxf.js
           elif [ -f programs/dwg2dxf ]; then
@@ -77,16 +79,24 @@ jobs:
             echo 'dwg2dxf JS launcher not found'
             exit 21
           fi
+          echo "$ENTRY" > /tmp/dwg2dxf_entry.txt
+
+      - name: Smoke test reusable WASM module
+        shell: bash
+        run: |
+          set -euxo pipefail
           node <<'JS'
           const createDwg2Dxf = require('/tmp/libredwg/programs/dwg2dxf.js');
           (async () => {
             const mod = await createDwg2Dxf({noInitialRun:true});
             if (!mod.FS || typeof mod.FS.writeFile !== 'function') throw new Error('FS export missing');
             if (typeof mod.callMain !== 'function') throw new Error('callMain export missing');
-            console.log('CCL_WASM_MODULE_SMOKE_PASS');
+            mod.FS.writeFile('/probe.txt', new Uint8Array([67,67,76]));
+            const probe = mod.FS.readFile('/probe.txt');
+            if (probe.length !== 3) throw new Error('MEMFS read/write failed');
+            console.log('CCL_WASM_MEMFS_SMOKE_PASS');
           })().catch(e => { console.error(e); process.exit(1); });
           JS
-          echo "$ENTRY" > /tmp/dwg2dxf_entry.txt
 
       - name: Package immutable engine
         shell: bash
@@ -109,9 +119,9 @@ jobs:
           printf '%s\n' "$LIBREDWG_REF" > "$OUT/LIBREDWG_REF.txt"
           cat > "$OUT/README.txt" <<'EOF'
           CCL_DWG2DXF_WASM_v0.2
-          Reusable offline DWG -> DXF writer candidate using Emscripten MEMFS.
-          Host supplies DWG bytes to Module.FS, calls Module.callMain, then reads DXF bytes from Module.FS.
-          No server/Railway/native host filesystem is required.
+          Reusable offline DWG -> DXF writer using Emscripten MEMFS.
+          Host writes DWG bytes to Module.FS, calls Module.callMain, then reads DXF bytes from Module.FS.
+          No Railway/server/native host filesystem is required at runtime.
           Boundary: conversion artifact only; conversion PASS does not prove semantic geometry/GFA.
           Source DWG must remain read-only; output goes to a separate result area.
           EOF
